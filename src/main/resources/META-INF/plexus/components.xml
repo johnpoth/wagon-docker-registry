@@ -1,0 +1,10 @@
+<component-set>
+    <components>
+        <component>
+            <role>org.apache.maven.wagon.Wagon</role>
+            <role-hint>oci</role-hint>
+            <implementation>com.github.johnpoth.ImageRegistryWagon</implementation>
+            <instantiation-strategy>per-lookup</instantiation-strategy>
+        </component>
+    </components>
+</component-set>
