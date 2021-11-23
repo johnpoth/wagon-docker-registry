@@ -58,10 +58,13 @@ import org.apache.maven.wagon.authentication.AuthenticationException;
 import org.apache.maven.wagon.authentication.AuthenticationInfo;
 import org.apache.maven.wagon.authorization.AuthorizationException;
 import org.apache.maven.wagon.events.SessionListener;
+import org.apache.maven.wagon.events.TransferEvent;
+import org.apache.maven.wagon.events.TransferEventSupport;
 import org.apache.maven.wagon.events.TransferListener;
 import org.apache.maven.wagon.proxy.ProxyInfo;
 import org.apache.maven.wagon.proxy.ProxyInfoProvider;
 import org.apache.maven.wagon.repository.Repository;
+import org.apache.maven.wagon.resource.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,96 +91,40 @@ public class ImageRegistryWagon implements Wagon {
     private AuthenticationInfo authenticationInfo;
     private FailoverHttpClient client;
     private static final Logger LOG = LoggerFactory.getLogger( ImageRegistryWagon.class );
-
+    private TransferEventSupport transferEventSupport = new TransferEventSupport();
 
     @Override
-    public void get(String resourceName, File destination) throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException {
+    public void get(String resourceName, File destination) throws TransferFailedException, ResourceDoesNotExistException {
         RegistryClient registryClient = getRegistryClient(resourceName);
-        String tag = getTag(resourceName);
-        try {
-            ManifestAndDigest<BuildableManifestTemplate> v1 = registryClient.pullManifest(tag, BuildableManifestTemplate.class);
-            List<BuildableManifestTemplate.ContentDescriptorTemplate> layers = v1.getManifest().getLayers();
-            BuildableManifestTemplate.ContentDescriptorTemplate contentDescriptorTemplate = layers.get(0);
-            Blob blob = registryClient.pullBlob(contentDescriptorTemplate.getDigest(), ignored -> {
-            }, ignored -> {
-            });
 
-            try (ByteArrayOutputStream ba = new ByteArrayOutputStream()) {
-                blob.writeTo(ba);
-                try (GzipCompressorInputStream gzipIn = new GzipCompressorInputStream(new ByteArrayInputStream(ba.toByteArray()));
-                     TarArchiveInputStream tarIn      = new TarArchiveInputStream(gzipIn);
-                     FileOutputStream output          = new FileOutputStream(destination)) {
-                    tarIn.getNextEntry();
-                    IOUtils.copy(tarIn, output);
-                }
-            }
-        } catch (RegistryException ex) {
-            ResponseException responseException = (ResponseException) ex.getCause();
-            if (404 == responseException.getStatusCode()) {
-                throw new ResourceDoesNotExistException(ex.getMessage());
-            } else {
-                throw new TransferFailedException(ex.getMessage());
-            }
-        } catch (IOException e) {
-            throw new TransferFailedException(e.getMessage());
-        }
+        ManifestAndDigest<BuildableManifestTemplate> v1 = getManifest(resourceName, registryClient);
+
+        copyResource(resourceName, destination, registryClient, v1);
     }
 
     @Override
-    public boolean getIfNewer(String resourceName, File destination, long timestamp) throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException {
+    public boolean getIfNewer(String resourceName, File destination, long timestamp) throws TransferFailedException, ResourceDoesNotExistException {
         RegistryClient registryClient = getRegistryClient(resourceName);
-        String tag = getTag(resourceName);
-        try {
-            ManifestAndDigest<BuildableManifestTemplate> v1 = registryClient.pullManifest(tag, BuildableManifestTemplate.class);
-            Blob cc = registryClient.pullBlob(v1.getManifest().getContainerConfiguration().getDigest(), ignored -> {
-            }, ignored -> {
-            });
-            String config = Blobs.writeToString(cc);
-            int start = config.indexOf("created") + 10;
-            int end = config.indexOf("\"", start);
-            String time = config.substring(start, end);
-            if (Instant.parse(time).toEpochMilli() >= timestamp) {
-                return false;
-            }
-            List<BuildableManifestTemplate.ContentDescriptorTemplate> layers = v1.getManifest().getLayers();
 
-            BuildableManifestTemplate.ContentDescriptorTemplate contentDescriptorTemplate = layers.get(0);
-            Blob blob = registryClient.pullBlob(contentDescriptorTemplate.getDigest(), ignored -> {
-            }, ignored -> {
-            });
+        ManifestAndDigest<BuildableManifestTemplate> v1 = getManifest(resourceName, registryClient);
 
-            try (ByteArrayOutputStream ba = new ByteArrayOutputStream()) {
-                blob.writeTo(ba);
-                try (GzipCompressorInputStream gzipIn = new GzipCompressorInputStream(new ByteArrayInputStream(ba.toByteArray()));
-                     TarArchiveInputStream tarIn      = new TarArchiveInputStream(gzipIn);
-                     FileOutputStream output          = new FileOutputStream(destination)) {
-                    tarIn.getNextEntry();
-                    IOUtils.copy(tarIn, output);
-                }
-            }
-            return true;
-        } catch (RegistryException ex) {
-            ResponseException responseException = (ResponseException) ex.getCause();
-            if (404 == responseException.getStatusCode()) {
-                throw new ResourceDoesNotExistException(ex.getMessage());
-            } else {
-                throw new TransferFailedException(ex.getMessage());
-            }
-        } catch (IOException e) {
-            LOG.error("Error while getting {}", resourceName, e);
-            throw new TransferFailedException(e.getMessage());
+        if (isOlder(resourceName, timestamp, registryClient, v1)) {
+            return false;
         }
+        copyResource(resourceName, destination, registryClient, v1);
+        return true;
     }
 
     @Override
-    public void put(File source, String destination) throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException {
+    public void put(File source, String destination) throws TransferFailedException, ResourceDoesNotExistException {
         RegistryClient registryClient = getRegistryClient(destination);
         String tag = getTag(destination);
+        // while copying data, it helps performance to calculate digests at the same time
         CountingDigestOutputStream cfo;
         CountingDigestOutputStream cfoTar;
         ByteArrayOutputStream ba;
         try {
-            ba = new ByteArrayOutputStream(1024);
+            ba = new ByteArrayOutputStream();
             cfo = new CountingDigestOutputStream(ba);
             GzipCompressorOutputStream gzOut = new GzipCompressorOutputStream(cfo);
             cfoTar = new CountingDigestOutputStream(gzOut);
@@ -196,14 +143,9 @@ public class ImageRegistryWagon implements Wagon {
             throw new ResourceDoesNotExistException(ex.getMessage());
         }
 
-        BlobDescriptor blobDescriptor = cfo.computeDigest();
-        // TODO: try to optimize this a bit. Create custom Blob and use ba.wirteTo (should work)
-        ByteArrayInputStream bi = new ByteArrayInputStream(ba.toByteArray());
-
         // Even though this is not a real image, some clients e.g Docker complain when there is no Config.json in the image tar which
         // helps interoperability
-        ContainerConfigurationTemplate containerConfiguration =
-                new ContainerConfigurationTemplate();
+        ContainerConfigurationTemplate containerConfiguration = new ContainerConfigurationTemplate();
         containerConfiguration.setOs("linux");
         containerConfiguration.addLayerDiffId(cfoTar.computeDigest().getDigest());
         containerConfiguration.setCreated(Instant.ofEpochMilli((source.lastModified())).toString());
@@ -213,9 +155,10 @@ public class ImageRegistryWagon implements Wagon {
             // Creates a valid image manifest.
             OciManifestTemplate expectedManifestTemplate = new OciManifestTemplate();
             expectedManifestTemplate.setContainerConfiguration(Digests.computeDigest(containerConfiguration).getSize(), testContainerConfigurationBlobDigest);
+            BlobDescriptor blobDescriptor = cfo.computeDigest();
             expectedManifestTemplate.addLayer(blobDescriptor.getSize(), blobDescriptor.getDigest());
 
-            registryClient.pushBlob(blobDescriptor.getDigest(), Blobs.from(bi), null, ignored -> {
+            registryClient.pushBlob(blobDescriptor.getDigest(), new ByteArrayOutputStreamBlob(ba), null, ignored -> {
             });
             registryClient.pushBlob(testContainerConfigurationBlobDigest, testContainerConfigurationBlob, null,
                     ignored -> {
@@ -226,6 +169,84 @@ public class ImageRegistryWagon implements Wagon {
             LOG.error("Error while putting [{}]", destination, e);
             throw new TransferFailedException(e.getMessage());
         }
+    }
+
+    private void copyResource(String resourceName, File destination, RegistryClient registryClient, ManifestAndDigest<BuildableManifestTemplate> v1) throws TransferFailedException {
+
+        Resource resource = new Resource(resourceName);
+        fireTransferStartedEvent(resource);
+        try {
+            List<BuildableManifestTemplate.ContentDescriptorTemplate> layers = v1.getManifest().getLayers();
+            BuildableManifestTemplate.ContentDescriptorTemplate contentDescriptorTemplate = layers.get(0);
+            Blob blob = registryClient.pullBlob(contentDescriptorTemplate.getDigest(), ignored -> {
+            }, ignored -> {
+            });
+
+            try (ByteArrayOutputStream ba = new ByteArrayOutputStream()) {
+                blob.writeTo(ba);
+                try (GzipCompressorInputStream gzipIn    = new GzipCompressorInputStream(new ByteArrayInputStream(ba.toByteArray()));
+                     TarArchiveInputStream tarIn         = new TarArchiveInputStream(gzipIn);
+                     FileOutputStream output             = new FileOutputStream(destination);
+                     FilterProgressOutputStream progress = new FilterProgressOutputStream(output, this.transferEventSupport, this, resource, TransferEvent.TRANSFER_PROGRESS, TransferEvent.REQUEST_GET)){
+
+                    tarIn.getNextEntry();
+                    IOUtils.copy(tarIn, progress);
+                }
+            }
+            fireTransferCompletedEvent(resource, TransferEvent.TRANSFER_COMPLETED);
+        } catch (IOException e) {
+            fireTransferCompletedEvent(resource, TransferEvent.TRANSFER_ERROR);
+            throw new TransferFailedException(e.getMessage());
+        }
+    }
+
+    private void fireTransferCompletedEvent(Resource resource, int transferCompleted) {
+        TransferEvent success = new TransferEvent(this, resource, transferCompleted, TransferEvent.REQUEST_GET);
+        this.transferEventSupport.fireTransferCompleted(success);
+    }
+
+    private void fireTransferStartedEvent(Resource resource) {
+        TransferEvent started = new TransferEvent( this, resource, TransferEvent.TRANSFER_STARTED, TransferEvent.REQUEST_GET );
+        this.transferEventSupport.fireTransferStarted(started);
+        TransferEvent init = new TransferEvent( this, resource, TransferEvent.TRANSFER_INITIATED, TransferEvent.REQUEST_GET);
+        this.transferEventSupport.fireTransferInitiated(init);
+    }
+
+    private ManifestAndDigest<BuildableManifestTemplate> getManifest(String resourceName, RegistryClient registryClient) throws ResourceDoesNotExistException, TransferFailedException {
+        String tag = getTag(resourceName);
+        try {
+            return registryClient.pullManifest(tag, BuildableManifestTemplate.class);
+        } catch (RegistryException ex) {
+            ResponseException responseException = (ResponseException) ex.getCause();
+            if (404 == responseException.getStatusCode()) {
+                throw new ResourceDoesNotExistException(ex.getMessage());
+            } else {
+                throw new TransferFailedException(ex.getMessage());
+            }
+        } catch (IOException e) {
+            LOG.error("Error while getting {}", resourceName, e);
+            throw new TransferFailedException(e.getMessage());
+        }
+    }
+
+    private boolean isOlder(String resourceName, long timestamp, RegistryClient registryClient, ManifestAndDigest<BuildableManifestTemplate> v1) throws TransferFailedException {
+        Blob cc = registryClient.pullBlob(v1.getManifest().getContainerConfiguration().getDigest(), ignored -> {
+        }, ignored -> {
+        });
+        try {
+            String config = Blobs.writeToString(cc);
+            int start = config.indexOf("created") + 10;
+            int end = config.indexOf("\"", start);
+            String time = config.substring(start, end);
+            if (Instant.parse(time).toEpochMilli() >= timestamp) {
+                return true;
+            }
+        } catch (IOException e){
+            throw new TransferFailedException("Error writing Blob to string", e);
+        } catch (Exception e){
+            LOG.debug("Error checking timestamp for Manifest [{}]. Assuming newer artifact is present", resourceName, e);
+        }
+        return false;
     }
 
     private String getTag(String destination) {
@@ -480,17 +501,17 @@ public class ImageRegistryWagon implements Wagon {
 
     @Override
     public void addTransferListener(TransferListener listener) {
-
+        this.transferEventSupport.addTransferListener(listener);
     }
 
     @Override
     public void removeTransferListener(TransferListener listener) {
-
+        this.transferEventSupport.removeTransferListener(listener);
     }
 
     @Override
     public boolean hasTransferListener(TransferListener listener) {
-        return false;
+        return this.transferEventSupport.hasTransferListener(listener);
     }
 
     @Override
