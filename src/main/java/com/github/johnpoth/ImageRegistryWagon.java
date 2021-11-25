@@ -73,6 +73,8 @@ public class ImageRegistryWagon implements Wagon {
 
     @Parameter(defaultValue = "true", property = "image.registry.maven.wagon.allowInsecureRegistries")
     private boolean allowInsecureRegistries = true;
+    @Parameter(defaultValue = "true", property = "image.registry.maven.wagon.sendAuthorizationOverHttp")
+    private boolean sendAuthorizationOverHttp = true;
     private Repository repository;
     private int timeout;
     private int readTimeout;
@@ -88,6 +90,8 @@ public class ImageRegistryWagon implements Wagon {
     //TODO: use Set.Of once we move to Java 9+
     // TODO: expose this option as other registries may have illegal characters for registry names such as quay.io
     // who also doesn't allow '.' ...
+    // TODO: as per https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview
+    // if a resource has more than 256 characters, maybe use the resource name's sha256sum instead.
     private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
 
 
@@ -278,9 +282,12 @@ public class ImageRegistryWagon implements Wagon {
             repository = replaceAllExceptFirst(region, "_", repository);
         }
         RegistryClient.Factory factory = RegistryClient.factory(EventHandlers.NONE, registry, repository, client);
-        RegistryClient registryClient = factory.newRegistryClient();
-        if (this.authenticationInfo != null) {
+        boolean setupAuth = this.authenticationInfo != null;
+        if(setupAuth) {
             factory.setCredential(Credential.from(this.authenticationInfo.getUserName(), this.authenticationInfo.getPassword()));
+        }
+        RegistryClient registryClient = factory.newRegistryClient();
+        if (setupAuth) {
             try {
                 if (!registryClient.doPushBearerAuth()) {
                     registryClient.configureBasicAuth();
@@ -391,7 +398,7 @@ public class ImageRegistryWagon implements Wagon {
         this.authenticationInfo = authenticationInfo;
         activateHttpAndHttpsProxies();
         this.client = new FailoverHttpClient(allowInsecureRegistries,
-                JibSystemProperties.sendCredentialsOverHttp(),
+                sendAuthorizationOverHttp,
                 EventHandlers.NONE::dispatch);
     }
 
