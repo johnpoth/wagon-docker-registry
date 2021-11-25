@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -34,8 +33,6 @@ import com.google.cloud.tools.jib.image.json.ContainerConfigurationTemplate;
 import com.google.cloud.tools.jib.image.json.OciManifestTemplate;
 import com.google.cloud.tools.jib.registry.ManifestAndDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
-import com.google.common.collect.ImmutableList;
-import com.google.inject.internal.util.Preconditions;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
@@ -76,20 +73,18 @@ public class ImageRegistryWagon implements Wagon {
     private int timeout;
     private int readTimeout;
 
-    private static final ImmutableList<String> PROXY_PROPERTIES =
-            ImmutableList.of("proxyHost", "proxyPort", "proxyUser", "proxyPassword");
+    private static final List<String> PROXY_PROPERTIES = List.of("proxyHost", "proxyPort", "proxyUser", "proxyPassword");
     private ProxyInfo proxyInfo;
     private ProxyInfoProvider proxyInfoProvider;
     private AuthenticationInfo authenticationInfo;
     private FailoverHttpClient client;
     private static final Logger LOG = LoggerFactory.getLogger( ImageRegistryWagon.class );
     private TransferEventSupport transferEventSupport = new TransferEventSupport();
-    //TODO: use Set.Of once we move to Java 9+
     // TODO: expose this option as other registries may have illegal characters for registry names such as quay.io
     // who also doesn't allow '.' ...
     // TODO: as per https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview
     // if a resource has more than 256 characters, maybe use the resource name's sha256sum instead.
-    private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
+    private static final Set<String> DOCKER_REGISTRIES = Set.of("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io");
 
 
     @Override
@@ -263,7 +258,6 @@ public class ImageRegistryWagon implements Wagon {
         // removes 'oci://' from repository url
         String url = this.repository.getUrl().substring(6);
         Optional<String> image = Optional.of(url + "/" +  resourceName);
-        Preconditions.checkArgument(image.isPresent());
 
         ImageReference targetImageReference;
         try {
@@ -328,7 +322,7 @@ public class ImageRegistryWagon implements Wagon {
             proxies.add(this.proxyInfo);
         }
         if (proxyInfoProvider!= null) {
-            for (String protocol : ImmutableList.of("http", "https")) {
+            for (String protocol : Arrays.asList("http", "https")) {
                 if (areProxyPropertiesSet(protocol)) {
                     continue;
                 }
