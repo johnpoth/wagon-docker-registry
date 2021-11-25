@@ -42,7 +42,6 @@ import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream;
 import org.apache.commons.compress.utils.IOUtils;
-import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.wagon.ConnectionException;
 import org.apache.maven.wagon.ResourceDoesNotExistException;
 import org.apache.maven.wagon.TransferFailedException;
@@ -71,9 +70,7 @@ import org.slf4j.LoggerFactory;
  */
 public class ImageRegistryWagon implements Wagon {
 
-    @Parameter(defaultValue = "true", property = "image.registry.maven.wagon.allowInsecureRegistries")
     private boolean allowInsecureRegistries = true;
-    @Parameter(defaultValue = "true", property = "image.registry.maven.wagon.sendAuthorizationOverHttp")
     private boolean sendAuthorizationOverHttp = true;
     private Repository repository;
     private int timeout;
