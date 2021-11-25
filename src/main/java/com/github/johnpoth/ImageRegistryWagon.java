@@ -3,7 +3,6 @@ package com.github.johnpoth;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -20,15 +19,11 @@ import com.google.cloud.tools.jib.api.Credential;
 import com.google.cloud.tools.jib.api.DescriptorDigest;
 import com.google.cloud.tools.jib.api.ImageReference;
 import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
-import com.google.cloud.tools.jib.api.LogEvent;
 import com.google.cloud.tools.jib.api.RegistryException;
-import com.google.cloud.tools.jib.api.RegistryImage;
-import com.google.cloud.tools.jib.api.buildplan.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.blob.Blob;
 import com.google.cloud.tools.jib.blob.BlobDescriptor;
 import com.google.cloud.tools.jib.blob.Blobs;
 import com.google.cloud.tools.jib.event.EventHandlers;
-import com.google.cloud.tools.jib.frontend.CredentialRetrieverFactory;
 import com.google.cloud.tools.jib.global.JibSystemProperties;
 import com.google.cloud.tools.jib.hash.CountingDigestOutputStream;
 import com.google.cloud.tools.jib.hash.Digests;
@@ -37,16 +32,8 @@ import com.google.cloud.tools.jib.http.ResponseException;
 import com.google.cloud.tools.jib.image.json.BuildableManifestTemplate;
 import com.google.cloud.tools.jib.image.json.ContainerConfigurationTemplate;
 import com.google.cloud.tools.jib.image.json.OciManifestTemplate;
-import com.google.cloud.tools.jib.plugins.common.AuthProperty;
-import com.google.cloud.tools.jib.plugins.common.ConfigurationPropertyValidator;
-import com.google.cloud.tools.jib.plugins.common.DefaultCredentialRetrievers;
-import com.google.cloud.tools.jib.plugins.common.InferredAuthException;
-import com.google.cloud.tools.jib.plugins.common.InferredAuthProvider;
-import com.google.cloud.tools.jib.plugins.common.InvalidWorkingDirectoryException;
-import com.google.cloud.tools.jib.plugins.common.RawConfiguration;
 import com.google.cloud.tools.jib.registry.ManifestAndDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.internal.util.Preconditions;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -99,6 +86,8 @@ public class ImageRegistryWagon implements Wagon {
     private static final Logger LOG = LoggerFactory.getLogger( ImageRegistryWagon.class );
     private TransferEventSupport transferEventSupport = new TransferEventSupport();
     //TODO: use Set.Of once we move to Java 9+
+    // TODO: expose this option as other registries may have illegal characters for registry names such as quay.io
+    // who also doesn't allow '.' ...
     private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
 
 
@@ -324,10 +313,6 @@ public class ImageRegistryWagon implements Wagon {
         return original;
     }
 
-    private void log(LogEvent logEvent) {
-        System.out.println(logEvent.getLevel().name() + ":" + logEvent.getMessage());
-    }
-
     boolean areProxyPropertiesSet(String protocol) {
         return PROXY_PROPERTIES.stream()
                 .anyMatch(property -> System.getProperty(protocol + "." + property) != null);
@@ -366,65 +351,6 @@ public class ImageRegistryWagon implements Wagon {
         if (value != null) {
             System.setProperty(property, value);
         }
-    }
-
-    @VisibleForTesting
-    private Optional<AbsoluteUnixPath> getWorkingDirectoryChecked(RawConfiguration rawConfiguration)
-            throws InvalidWorkingDirectoryException {
-        Optional<String> directory = rawConfiguration.getWorkingDirectory();
-        if (!directory.isPresent()) {
-            return Optional.empty();
-        }
-
-        String path = directory.get();
-        try {
-            return Optional.of(AbsoluteUnixPath.get(path));
-        } catch (IllegalArgumentException ex) {
-            throw new InvalidWorkingDirectoryException(path, path, ex);
-        }
-    }
-
-    private void configureCredentialRetrievers(
-            RawConfiguration rawConfiguration,
-            RegistryImage registryImage,
-            ImageReference imageReference,
-            String usernamePropertyName,
-            String passwordPropertyName,
-            AuthProperty rawAuthConfiguration,
-            InferredAuthProvider inferredAuthProvider,
-            String credHelper)
-            throws FileNotFoundException {
-        DefaultCredentialRetrievers defaultCredentialRetrievers =
-                DefaultCredentialRetrievers.init(
-                        CredentialRetrieverFactory.forImage(imageReference, this::log));
-        Optional<Credential> optionalCredential =
-                ConfigurationPropertyValidator.getImageCredential(
-                        this::log,
-                        usernamePropertyName,
-                        passwordPropertyName,
-                        rawAuthConfiguration,
-                        rawConfiguration);
-        if (optionalCredential.isPresent()) {
-            defaultCredentialRetrievers.setKnownCredential(
-                    optionalCredential.get(), rawAuthConfiguration.getAuthDescriptor());
-        } else {
-            try {
-                Optional<AuthProperty> optionalInferredAuth =
-                        inferredAuthProvider.inferAuth(imageReference.getRegistry());
-                if (optionalInferredAuth.isPresent()) {
-                    AuthProperty auth = optionalInferredAuth.get();
-                    String username = auth.getUsername();
-                    String password = auth.getPassword();
-                    Credential credential = Credential.from(username, password);
-                    defaultCredentialRetrievers.setInferredCredential(credential, auth.getAuthDescriptor());
-                }
-            } catch (InferredAuthException ex) {
-                log(LogEvent.warn("InferredAuthException: " + ex.getMessage()));
-            }
-        }
-
-        defaultCredentialRetrievers.setCredentialHelper(credHelper);
-        defaultCredentialRetrievers.asList().forEach(registryImage::addCredentialRetriever);
     }
 
     @Override
@@ -573,88 +499,4 @@ public class ImageRegistryWagon implements Wagon {
     public void setInteractive(boolean interactive) {
 
     }
-
-//    @Override
-//    public void put(File source, String destination) throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException {
-//
-//        activateHttpAndHttpsProxies();
-//
-//        try {
-//            // TODO remove
-//            GlobalConfig globalConfig = GlobalConfig.readConfig();
-//            Optional<String> image = Optional.of(this.repository.getUrl().substring(6) + "/" +  destination);
-//            Preconditions.checkArgument(image.isPresent());
-//
-//            ImageReference targetImageReference = ImageReference.parse(image.get());
-//            RegistryImage targetImage = RegistryImage.named(targetImageReference);
-//
-//            InferredAuthProvider inferredAuthProvider =  new MavenServerCredentials(this.authenticationInfo, this.repository);
-//            RawConfiguration rawConfiguration = new MavenRawConfiguration(new JibPluginConfiguration() {
-//                @Override
-//                public void execute() throws MojoExecutionException, MojoFailureException {
-//
-//                }
-//            });
-//            configureCredentialRetrievers(
-//                    rawConfiguration,
-//                    targetImage,
-//                    targetImageReference,
-//                    PropertyNames.TO_AUTH_USERNAME,
-//                    PropertyNames.TO_AUTH_PASSWORD,
-//                    rawConfiguration.getToAuth(),
-//                    inferredAuthProvider,
-//                    rawConfiguration.getToCredHelper().orElse(null));
-//
-//            Containerizer containerizer =
-//                    Containerizer.to(targetImage);
-//            Multimaps.asMap(globalConfig.getRegistryMirrors()).forEach(containerizer::addRegistryMirrors);
-//
-//            JibSystemProperties.checkHttpTimeoutProperty();
-//            JibSystemProperties.checkProxyPortProperty();
-//
-//            containerizer
-//                    .setToolName("image-registry-maven-wagon")
-//                    .setToolVersion("0.1.0")
-//                    .setAllowInsecureRegistries(allowInsecureRegistries);
-//
-//            String path = destination.substring(0, destination.lastIndexOf("/"));
-//            String version = path.substring(path.lastIndexOf("/") + 1 );
-//            containerizer.withAdditionalTag(version);
-//            this.tags.forEach(containerizer::withAdditionalTag);
-//
-//            List<Path> paths = new ArrayList<>();
-//            paths.add(source.toPath());
-//            JibContainerBuilder jibContainerBuilder = Jib.fromScratch()
-//                    .addLayer(paths,"/maven/" + path);
-//            jibContainerBuilder
-//                    .setFormat(rawConfiguration.getImageFormat())
-//                    .setLabels(rawConfiguration.getLabels())
-//                    .setUser(rawConfiguration.getUser().orElse(null))
-//                    .setWorkingDirectory(AbsoluteUnixPath.get("/maven"))
-//                    .setCreationTime(Instant.ofEpochMilli(source.lastModified()));
-//            getWorkingDirectoryChecked(rawConfiguration)
-//                    .ifPresent(jibContainerBuilder::setWorkingDirectory);
-//            jibContainerBuilder.containerize(containerizer);
-//
-////            // when an image is built, write out the digest and id
-////            if (imageDigestOutputPath != null) {
-////                String imageDigest = jibContainer.getDigest().toString();
-////                Files.write(imageDigestOutputPath, imageDigest.getBytes(StandardCharsets.UTF_8));
-////            }
-////            if (imageIdOutputPath != null) {
-////                String imageId = jibContainer.getImageId().toString();
-////                Files.write(imageIdOutputPath, imageId.getBytes(StandardCharsets.UTF_8));
-////            }
-////            if (imageJsonOutputPath != null) {
-////                ImageMetadataOutput metadataOutput = ImageMetadataOutput.fromJibContainer(jibContainer);
-////                String imageJson = metadataOutput.toJson();
-////                Files.write(imageJsonOutputPath, imageJson.getBytes(StandardCharsets.UTF_8));
-////            }
-//
-//        } catch (Exception e) {
-//            throw new RuntimeException(e);
-//        } finally {
-//        }
-//
-//    }
 }
