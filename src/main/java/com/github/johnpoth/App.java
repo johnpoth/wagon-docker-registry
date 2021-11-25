@@ -12,11 +12,17 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import com.google.cloud.tools.jib.api.Containerizer;
+import com.google.cloud.tools.jib.api.Credential;
 import com.google.cloud.tools.jib.api.DescriptorDigest;
 import com.google.cloud.tools.jib.api.ImageReference;
 import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
@@ -38,7 +44,6 @@ import com.google.cloud.tools.jib.image.json.OciManifestTemplate;
 import com.google.cloud.tools.jib.registry.ManifestAndDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
 import com.google.inject.internal.util.Preconditions;
-import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
@@ -63,6 +68,7 @@ public class App
     private static final String OCI_LAYOUT = "{ \"imageLayoutVersion\": \"1.0.0\" }";
 
     private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
+    private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
 
     private static final String INDEX = "{\n"
             + "  \"schemaVersion\": 2,\n"
@@ -82,13 +88,53 @@ public class App
             + "  }\n"
             + "}";
 
+    public static String replaceAllbutFirst(Matcher match, String replacement) {
+            match.reset();
+            boolean result = match.find();
+            boolean first = true;
+            if (result) {
+                StringBuffer sb = new StringBuffer();
+                do {
+                    if (first) {
+                        first = false;
+                        match.appendReplacement(sb, "/");
+                    } else {
+                        match.appendReplacement(sb, replacement);
+                    }
+                    result = match.find();
+                } while (result);
+                match.appendTail(sb);
+                return sb.toString();
+            }
+            return "original";
+    }
     public static void main( String[] args ) throws Exception {
+        FailoverHttpClient httpClient = new FailoverHttpClient(true, true, ignored -> {});
+        Blob testBlob = Blobs.from("crepecake");
+        // Known digest for 'crepecake'
+        DescriptorDigest testBlobDigest =
+                DescriptorDigest.fromHash(
+                        "52a9e4d4ba4333ce593707f98564fee1e6d898db0d3602408c0b2a6a424d357c");
 
-
-        String test = "https://foobar:500";
-        String test2 = "foobar:500";
-
-        test.indexOf("://");
+        ImageReference targetImageReference;
+        try {
+            targetImageReference = ImageReference.parse("docker.io/jpoth/foochar/foo/bar/foo.jar:latest");
+        } catch (InvalidImageReferenceException e) {
+            throw new Exception(e.getMessage());
+        }
+        String repository = targetImageReference.getRepository();
+        if (DOCKER_REGISTRIES.contains(targetImageReference.getRegistry())) {
+            Matcher region = Pattern.compile("/").matcher(repository);
+            repository = replaceAllbutFirst(region, "_");
+            repository = "jpoth/release_com_github_johnpoth_jshell-maven-plugin_1.5_jshell-maven-plugin-1.5.jar";
+        }
+        RegistryClient registryClient =
+                RegistryClient.factory(EventHandlers.NONE, targetImageReference.getRegistry(), repository, httpClient)
+                        .setCredential(Credential.from("jpoth", "ef67c204-571c-4088-ba94-3e65fb9903ec"))
+                        .newRegistryClient();
+//        registryClient.configureBasicAuth();
+        registryClient.doPushBearerAuth();
+        registryClient.pushBlob(testBlobDigest, testBlob, null, ignored -> {});
 //        try (OutputStream fOut = Files.newOutputStream(Paths.get("output.tar.gz"))) {
 //            BufferedOutputStream buffOut = new BufferedOutputStream(fOut);
 //            GzipCompressorOutputStream gzOut = new GzipCompressorOutputStream(buffOut);
@@ -159,9 +205,10 @@ public class App
 //                createTarArchiveEntry("blobs/sha256/" + digestHex, jar, tOut);
 
 
-        // Let's ROCK & ROLL !
-        testGet();
-        System.out.println( "Hello World!" );
+//        // Let's ROCK & ROLL !
+//        testGet();
+//        System.out.println( "Hello World!" );
+//        Assert.assertFalse(registryClient.pushBlob(testBlobDigest, testBlob, null, ignored -> {}));
 
     }
 

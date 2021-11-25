@@ -6,10 +6,16 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import com.google.cloud.tools.jib.api.Credential;
 import com.google.cloud.tools.jib.api.DescriptorDigest;
 import com.google.cloud.tools.jib.api.ImageReference;
@@ -92,6 +98,9 @@ public class ImageRegistryWagon implements Wagon {
     private FailoverHttpClient client;
     private static final Logger LOG = LoggerFactory.getLogger( ImageRegistryWagon.class );
     private TransferEventSupport transferEventSupport = new TransferEventSupport();
+    //TODO: use Set.Of once we move to Java 9+
+    private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
+
 
     @Override
     public void get(String resourceName, File destination) throws TransferFailedException, ResourceDoesNotExistException {
@@ -128,8 +137,9 @@ public class ImageRegistryWagon implements Wagon {
             cfo = new CountingDigestOutputStream(ba);
             GzipCompressorOutputStream gzOut = new GzipCompressorOutputStream(cfo);
             cfoTar = new CountingDigestOutputStream(gzOut);
-            // TODO: see TarStreamBuilder for some additional options (like encoding sigh..)
-            TarArchiveOutputStream tOut = new TarArchiveOutputStream(cfoTar);
+            TarArchiveOutputStream tOut = new TarArchiveOutputStream(cfoTar, StandardCharsets.UTF_8.name());
+            tOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
+            tOut.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX);
 
             TarArchiveEntry tarEntry = new TarArchiveEntry(source);
             tarEntry.setName(source.getName());
@@ -146,7 +156,6 @@ public class ImageRegistryWagon implements Wagon {
         // Even though this is not a real image, some clients e.g Docker complain when there is no Config.json in the image tar which
         // helps interoperability
         ContainerConfigurationTemplate containerConfiguration = new ContainerConfigurationTemplate();
-        containerConfiguration.setOs("linux");
         containerConfiguration.addLayerDiffId(cfoTar.computeDigest().getDigest());
         containerConfiguration.setCreated(Instant.ofEpochMilli((source.lastModified())).toString());
         Blob testContainerConfigurationBlob = Blobs.from(containerConfiguration);
@@ -158,6 +167,8 @@ public class ImageRegistryWagon implements Wagon {
             BlobDescriptor blobDescriptor = cfo.computeDigest();
             expectedManifestTemplate.addLayer(blobDescriptor.getSize(), blobDescriptor.getDigest());
 
+            // if we want to notify Maven of our progress, we'll have to wrap the blobs/stream and notify Maven accordingly
+            // not sure how useful this is to users so we'll leave it as it is for now
             registryClient.pushBlob(blobDescriptor.getDigest(), new ByteArrayOutputStreamBlob(ba), null, ignored -> {
             });
             registryClient.pushBlob(testContainerConfigurationBlobDigest, testContainerConfigurationBlob, null,
@@ -270,8 +281,47 @@ public class ImageRegistryWagon implements Wagon {
         } catch (InvalidImageReferenceException e) {
             throw new TransferFailedException(e.getMessage());
         }
-        RegistryClient.Factory factory = RegistryClient.factory(EventHandlers.NONE, targetImageReference.getRegistry(), targetImageReference.getRepository(), client);
-        return factory.newRegistryClient();
+        String registry = targetImageReference.getRegistry();
+        String repository = targetImageReference.getRepository();
+        // replace '/' in image repository names as Docker Hub doesn't support it
+        if (DOCKER_REGISTRIES.contains(targetImageReference.getRegistry())) {
+            Matcher region = Pattern.compile("/").matcher(repository);
+            repository = replaceAllExceptFirst(region, "_", repository);
+        }
+        RegistryClient.Factory factory = RegistryClient.factory(EventHandlers.NONE, registry, repository, client);
+        RegistryClient registryClient = factory.newRegistryClient();
+        if (this.authenticationInfo != null) {
+            factory.setCredential(Credential.from(this.authenticationInfo.getUserName(), this.authenticationInfo.getPassword()));
+            try {
+                if (!registryClient.doPushBearerAuth()) {
+                    registryClient.configureBasicAuth();
+                }
+            } catch (Exception e) {
+                throw new TransferFailedException(e.getMessage());
+            }
+        }
+        return registryClient;
+    }
+
+    private String replaceAllExceptFirst(Matcher match, String replacement, String original) {
+        match.reset();
+        boolean result = match.find();
+        boolean first = true;
+        if (result) {
+            StringBuffer sb = new StringBuffer();
+            do {
+                if (first) {
+                    first = false;
+                    match.appendReplacement(sb, "/");
+                } else {
+                    match.appendReplacement(sb, replacement);
+                }
+                result = match.find();
+            } while (result);
+            match.appendTail(sb);
+            return sb.toString();
+        }
+        return original;
     }
 
     private void log(LogEvent logEvent) {
