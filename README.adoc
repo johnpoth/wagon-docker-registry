@@ -1,0 +1,55 @@
+= Maven Wagon for Image repositories
+
+This Maven https://maven.apache.org/wagon/[Wagon] allows you to use your Image repository as a Maven repository. By image repository we roughly follow the https://github.com/opencontainers/distribution-spec[Distribution Spec]. That being said, we do try to support popular vendors (e.g Docker, Azure, Google, RedHat etc...) that often put additional constraints on allowed characters in Image repository names (e.g Docker Hub doesn't allow '/'). Contributions are welcome!
+
+== Use it
+
+The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs and works similarly to the other Maven wagons. For example, to use Docker Hub as a Maven repository:
+
+[source,xml]
+----
+<!-- settings.xml example -->
+<server>
+  <id>docker-hub</id>
+  <username>jpoth</username>
+  <password>XXXXXX</password>
+</server>
+
+<repository>
+  <id>docker-hub</id>
+  <name>Docker Hub Repository</name>
+  <url>oci://docker.io/jpoth</url>
+</repository>
+----
+
+[source,xml]
+----
+<!-- pom.xml example -->
+<distributionManagement>
+  <snapshotRepository>
+    <id>docker-hub</id>
+    <url>oci://docker.io/jpoth</url>
+  </snapshotRepository>
+  <repository>
+    <id>docker-hub</id>
+    <url>oci://docker.io/jpoth</url>
+  </repository>
+</distributionManagement>
+
+<build>
+  <extensions>
+    <extension>
+        <groupId>com.github.johnpoth</groupId>
+        <artifactId>wagon-oci-distribution</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </extension>
+  </extensions>
+</build>
+----
+
+Now you can deploy/pull your artifacts to Docker Hub. Enjoy !
+
+== Credits
+
+The wagon uses https://github.com/GoogleContainerTools/jib[Jib] to build and push the Image TAR.
+

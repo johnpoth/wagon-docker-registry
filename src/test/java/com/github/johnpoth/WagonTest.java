@@ -1,21 +1,24 @@
 package com.github.johnpoth;
 
+
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.lang.reflect.Array;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import com.google.cloud.tools.jib.api.Credential;
 import com.google.cloud.tools.jib.api.DescriptorDigest;
 import com.google.cloud.tools.jib.api.ImageReference;
 import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
@@ -39,9 +42,14 @@ import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream;
 import org.apache.commons.compress.utils.IOUtils;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 /**
- * Example Layout:
+ * Test class for playing around.
+ *
+ *
+ * Example OCI Image layout:
  *
  * $ find . -type f
  * ./index.json
@@ -52,8 +60,9 @@ import org.apache.commons.compress.utils.IOUtils;
  *
  *
  */
-public class App 
-{
+@Disabled
+public class WagonTest {
+
     private static final String OCI_LAYOUT = "{ \"imageLayoutVersion\": \"1.0.0\" }";
 
     private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
@@ -77,132 +86,9 @@ public class App
             + "  }\n"
             + "}";
 
-    public static String replaceAllbutFirst(Matcher match, String replacement) {
-            match.reset();
-            boolean result = match.find();
-            boolean first = true;
-            if (result) {
-                StringBuffer sb = new StringBuffer();
-                do {
-                    if (first) {
-                        first = false;
-                        match.appendReplacement(sb, "/");
-                    } else {
-                        match.appendReplacement(sb, replacement);
-                    }
-                    result = match.find();
-                } while (result);
-                match.appendTail(sb);
-                return sb.toString();
-            }
-            return "original";
-    }
-    public static void main( String[] args ) throws Exception {
-        FailoverHttpClient httpClient = new FailoverHttpClient(true, true, ignored -> {});
-        Blob testBlob = Blobs.from("crepecake");
-        // Known digest for 'crepecake'
-        DescriptorDigest testBlobDigest =
-                DescriptorDigest.fromHash(
-                        "52a9e4d4ba4333ce593707f98564fee1e6d898db0d3602408c0b2a6a424d357c");
 
-        ImageReference targetImageReference;
-        try {
-            targetImageReference = ImageReference.parse("docker.io/jpoth/foochar/foo/bar/foo.jar:latest");
-        } catch (InvalidImageReferenceException e) {
-            throw new Exception(e.getMessage());
-        }
-        String repository = targetImageReference.getRepository();
-        if (DOCKER_REGISTRIES.contains(targetImageReference.getRegistry())) {
-            Matcher region = Pattern.compile("/").matcher(repository);
-            repository = replaceAllbutFirst(region, "_");
-            repository = "jpoth/release_com_github_johnpoth_jshell-maven-plugin_1.5_jshell-maven-plugin-1.5.jar";
-        }
-        RegistryClient registryClient =
-                RegistryClient.factory(EventHandlers.NONE, targetImageReference.getRegistry(), repository, httpClient)
-                        .setCredential(Credential.from("jpoth", "ef67c204-571c-4088-ba94-3e65fb9903ec"))
-                        .newRegistryClient();
-//        registryClient.configureBasicAuth();
-        registryClient.doPushBearerAuth();
-        registryClient.pushBlob(testBlobDigest, testBlob, null, ignored -> {});
-//        try (OutputStream fOut = Files.newOutputStream(Paths.get("output.tar.gz"))) {
-//            BufferedOutputStream buffOut = new BufferedOutputStream(fOut);
-//            GzipCompressorOutputStream gzOut = new GzipCompressorOutputStream(buffOut);
-//
-//            // OCI layout
-//            try (TarArchiveOutputStream tOut = new TarArchiveOutputStream(gzOut)) {
-//                createTarArchiveEntry("oci-layout", OCI_LAYOUT.getBytes(), tOut);
-//
-//                // JAR
-//                byte[] jar = Files.readAllBytes(Paths.get("src/main/resources/ant-1.6.3.jar"));
-//                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-//                byte[] digestBytes = digest.digest(jar);
-//                String digestHex = bytesToHex(digestBytes);
-//
-//                createTarArchiveEntry("blobs/sha256/" + digestHex, jar, tOut);
-//
-//                // Index.json
-//                String index = INDEX.replace("{{SIZE}}", String.valueOf(Array.getLength(jar)));
-//                index = index.replace("{{DIGEST}}", digestHex);
-//                index = index.replace("{{GROUPD_ID}}", "apache");
-//                index = index.replace("{{ARTIFACT_ID}}", "ant");
-//                index = index.replace("{{TIMESTAMP}}", String.valueOf(java.lang.System.currentTimeMillis()));
-//                createTarArchiveEntry("index.json", index.getBytes(), tOut);
-//                tOut.finish();
-//            }
-//        }
-
-        // USING CONTAINERS
-//        long start = System.currentTimeMillis();
-//        for (int i = 0; i < 10 ; i ++) {
-//            List<Path> paths = new ArrayList<>();
-//            paths.add(Paths.get("src/main/resources/ant-1.4.15.jar"));
-//            Jib.fromScratch()
-//                    .addLayer(paths, "/maven")
-//                    .containerize(Containerizer.to(RegistryImage.named("localhost:5000/org/apache/ant/ant/1.10.12/ant-1.10.13.jar"))                            .setAllowInsecureRegistries(true));
-//        }
-//        long finish = System.currentTimeMillis();
-//        System.out.println(finish - start);
-        // USING BLOB
-
-//        testPut();
-
-        // USING CREPECAKE !
-//        Blob testLayerBlob = Blobs.from("crepecake");
-//        // Known digest for 'crepecake'
-//        DescriptorDigest testLayerBlobDigest =
-//                DescriptorDigest.fromHash(
-//                        "52a9e4d4ba4333ce593707f98564fee1e6d898db0d3602408c0b2a6a424d357c");
-//
-//        // Pushes the BLOBs.
-//        RegistryClient registryClient =
-//                RegistryClient.factory(EventHandlers.NONE, "localhost:42532", "testimage", client)
-//                        .newRegistryClient();
-//        boolean c =         registryClient.pushBlob(testLayerBlobDigest, testLayerBlob, null, ignored -> {});
-//        boolean d =        registryClient.pushBlob(
-//                        testContainerConfigurationBlobDigest,
-//                        testContainerConfigurationBlob,
-//                        null,
-//                        ignored -> {});
-//
-//        // Pushes the manifest.
-//        DescriptorDigest imageDigest = registryClient.pushManifest(expectedManifestTemplate, "latest");
-
-//                        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-//                byte[] digestBytes = digest.digest(jar);
-//                String digestHex = bytesToHex(digestBytes);
-//
-//                createTarArchiveEntry("blobs/sha256/" + digestHex, jar, tOut);
-
-
-//        // Let's ROCK & ROLL !
-//        testGet();
-//        System.out.println( "Hello World!" );
-//        Assert.assertFalse(registryClient.pushBlob(testBlobDigest, testBlob, null, ignored -> {}));
-
-    }
-
-    private static void testPut() throws IOException, RegistryException {
-
+    @Test
+    void simplePut() throws Exception{
         FailoverHttpClient client = new FailoverHttpClient(
                 true,
                 JibSystemProperties.sendCredentialsOverHttp(),
@@ -285,7 +171,8 @@ public class App
         System.out.println(finish - start);
     }
 
-    public static void testGet() {
+    @Test
+    void simpleGet() {
         FailoverHttpClient client = new FailoverHttpClient(
                 true,
                 JibSystemProperties.sendCredentialsOverHttp(),
@@ -341,17 +228,38 @@ public class App
         }
     }
 
-    public static String bytesToHex(byte[] bytes) {
-        char[] hexChars = new char[bytes.length * 2];
-        for (int j = 0; j < bytes.length; j++) {
-            int v = bytes[j] & 0xFF;
-            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
-            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+
+    @Test
+    void simpleImageArchive() throws Exception {
+        try (OutputStream fOut = Files.newOutputStream(Paths.get("output.tar.gz"))) {
+            BufferedOutputStream buffOut = new BufferedOutputStream(fOut);
+            GzipCompressorOutputStream gzOut = new GzipCompressorOutputStream(buffOut);
+
+            // OCI layout
+            try (TarArchiveOutputStream tOut = new TarArchiveOutputStream(gzOut)) {
+                createTarArchiveEntry("oci-layout", OCI_LAYOUT.getBytes(), tOut);
+
+                // JAR
+                byte[] jar = Files.readAllBytes(Paths.get("src/main/resources/ant-1.6.3.jar"));
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] digestBytes = digest.digest(jar);
+                String digestHex = bytesToHex(digestBytes);
+
+                createTarArchiveEntry("blobs/sha256/" + digestHex, jar, tOut);
+
+                // Index.json
+                String index = INDEX.replace("{{SIZE}}", String.valueOf(Array.getLength(jar)));
+                index = index.replace("{{DIGEST}}", digestHex);
+                index = index.replace("{{GROUPD_ID}}", "apache");
+                index = index.replace("{{ARTIFACT_ID}}", "ant");
+                index = index.replace("{{TIMESTAMP}}", String.valueOf(java.lang.System.currentTimeMillis()));
+                createTarArchiveEntry("index.json", index.getBytes(), tOut);
+                tOut.finish();
+            }
         }
-        return new String(hexChars);
     }
 
-    private static void createTarArchiveEntry(String fileName,
+    private void createTarArchiveEntry(String fileName,
                                               byte[] dataInBytes,
                                               TarArchiveOutputStream tOut)
             throws IOException {
@@ -377,4 +285,16 @@ public class App
         tOut.closeArchiveEntry();
 
     }
+
+    public String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+
+
 }
