@@ -25,8 +25,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -59,9 +59,7 @@ import org.apache.maven.wagon.ConnectionException;
 import org.apache.maven.wagon.ResourceDoesNotExistException;
 import org.apache.maven.wagon.TransferFailedException;
 import org.apache.maven.wagon.Wagon;
-import org.apache.maven.wagon.authentication.AuthenticationException;
 import org.apache.maven.wagon.authentication.AuthenticationInfo;
-import org.apache.maven.wagon.authorization.AuthorizationException;
 import org.apache.maven.wagon.events.SessionListener;
 import org.apache.maven.wagon.events.TransferEvent;
 import org.apache.maven.wagon.events.TransferEventSupport;
@@ -87,17 +85,17 @@ public class OciDistributionWagon implements Wagon {
     private int timeout;
     private int readTimeout;
 
-    private static final List<String> PROXY_PROPERTIES = List.of("proxyHost", "proxyPort", "proxyUser", "proxyPassword");
+    private static final List<String> PROXY_PROPERTIES = Arrays.asList("proxyHost", "proxyPort", "proxyUser", "proxyPassword");
     private ProxyInfo proxyInfo;
     private ProxyInfoProvider proxyInfoProvider;
     private AuthenticationInfo authenticationInfo;
     private FailoverHttpClient client;
-    private static final Logger LOG = LoggerFactory.getLogger( OciDistributionWagon.class );
+    private static final Logger LOG = LoggerFactory.getLogger( OciDistributionWagon.class);
     private TransferEventSupport transferEventSupport = new TransferEventSupport();
     // TODO: expose this option as other registries may have illegal characters for registry names. For example quay.io doesn't allow '.'
     // TODO: as per https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview
     // if a resource has more than 256 characters, maybe use the resource name's sha256sum instead.
-    private static final Set<String> DOCKER_REGISTRIES = Set.of("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io");
+    private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
 
 
     @Override
@@ -259,24 +257,30 @@ public class OciDistributionWagon implements Wagon {
     }
 
     private String getTag(String destination) {
-        String path = destination.substring(0, destination.lastIndexOf("/"));
-        String tag = path.substring(path.lastIndexOf("/") + 1);
-        if (Character.isDigit(tag.charAt(0))) {
-            return tag;
+        try {
+            String path = destination.substring(0, destination.lastIndexOf("/"));
+            String tag = path.substring(path.lastIndexOf("/") + 1);
+            if (Character.isDigit(tag.charAt(0))) {
+                return tag;
+            }
+            return "latest";
+        } catch(Exception e){
+            LOG.debug("Error guessing image tag for [{}]. Assuming 'latest'", destination, e);
+            return "latest";
         }
-        return "latest";
     }
 
-    private RegistryClient getRegistryClient(String resourceName) throws TransferFailedException {
+    private RegistryClient getRegistryClient(String resourceName) throws TransferFailedException, ResourceDoesNotExistException {
         // removes 'oci://' from repository url
         String url = this.repository.getUrl().substring(6);
-        Optional<String> image = Optional.of(url + "/" +  resourceName);
+        String image = url + "/" +  resourceName;
 
         ImageReference targetImageReference;
         try {
-            targetImageReference = ImageReference.parse(image.get());
+            targetImageReference = ImageReference.parse(image.toLowerCase());
         } catch (InvalidImageReferenceException e) {
-            throw new TransferFailedException(e.getMessage());
+            LOG.debug("Error building image reference [{}]", resourceName.toLowerCase(), e);
+            throw new ResourceDoesNotExistException(e.getMessage());
         }
         String registry = targetImageReference.getRegistry();
         String repository = targetImageReference.getRepository();
@@ -365,23 +369,26 @@ public class OciDistributionWagon implements Wagon {
     }
 
     @Override
-    public void putDirectory(File sourceDirectory, String destinationDirectory) throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException {
+    public void putDirectory(File sourceDirectory, String destinationDirectory) throws TransferFailedException {
        throw new TransferFailedException("putDirectory not supported!!!");
     }
 
     @Override
-    public boolean resourceExists(String resourceName) throws TransferFailedException, AuthorizationException {
-        RegistryClient registryClient = getRegistryClient(resourceName);
-        String tag = getTag(resourceName);
+    public boolean resourceExists(String resourceName) throws TransferFailedException{
+        RegistryClient registryClient;
         try {
+            registryClient = getRegistryClient(resourceName);
+            String tag = getTag(resourceName);
             return registryClient.checkManifest(tag).isPresent();
+        } catch (ResourceDoesNotExistException e) {
+            return false;
         } catch (Exception e) {
             throw new TransferFailedException(e.getMessage());
         }
     }
 
     @Override
-    public List<String> getFileList(String destinationDirectory) throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException {
+    public List<String> getFileList(String destinationDirectory) throws TransferFailedException {
         throw new TransferFailedException("getFileList not supported!!!");
     }
 
@@ -395,7 +402,7 @@ public class OciDistributionWagon implements Wagon {
         return this.repository;
     }
 
-    private void connectInternal(Repository source, ProxyInfo proxyInfo, ProxyInfoProvider proxyInfoProvider, AuthenticationInfo authenticationInfo) throws ConnectionException, AuthenticationException {
+    private void connectInternal(Repository source, ProxyInfo proxyInfo, ProxyInfoProvider proxyInfoProvider, AuthenticationInfo authenticationInfo) {
         this.repository = source;
         this.proxyInfo = proxyInfo;
         this.proxyInfoProvider = proxyInfoProvider;
@@ -407,37 +414,37 @@ public class OciDistributionWagon implements Wagon {
     }
 
     @Override
-    public void connect(Repository source) throws ConnectionException, AuthenticationException {
+    public void connect(Repository source) {
         connectInternal(source,null, null, null);
     }
 
     @Override
-    public void connect(Repository source, ProxyInfo proxyInfo) throws ConnectionException, AuthenticationException {
+    public void connect(Repository source, ProxyInfo proxyInfo) {
         connectInternal(source, proxyInfo, null, null);
     }
 
     @Override
-    public void connect(Repository source, ProxyInfoProvider proxyInfoProvider) throws ConnectionException, AuthenticationException {
+    public void connect(Repository source, ProxyInfoProvider proxyInfoProvider) {
         connectInternal(source,null, proxyInfoProvider, null);
     }
 
     @Override
-    public void connect(Repository source, AuthenticationInfo authenticationInfo) throws ConnectionException, AuthenticationException {
+    public void connect(Repository source, AuthenticationInfo authenticationInfo) {
         connectInternal(source,null, null, authenticationInfo);
     }
 
     @Override
-    public void connect(Repository source, AuthenticationInfo authenticationInfo, ProxyInfo proxyInfo) throws ConnectionException, AuthenticationException {
+    public void connect(Repository source, AuthenticationInfo authenticationInfo, ProxyInfo proxyInfo) {
         connectInternal(source, proxyInfo, null, authenticationInfo);
     }
 
     @Override
-    public void connect(Repository source, AuthenticationInfo authenticationInfo, ProxyInfoProvider proxyInfoProvider) throws ConnectionException, AuthenticationException {
+    public void connect(Repository source, AuthenticationInfo authenticationInfo, ProxyInfoProvider proxyInfoProvider) {
         connectInternal(source, null, proxyInfoProvider, authenticationInfo);
     }
 
     @Override
-    public void openConnection() throws ConnectionException, AuthenticationException {
+    public void openConnection() {
         // Nothing to do here (never called by the wagon manager)
     }
 
