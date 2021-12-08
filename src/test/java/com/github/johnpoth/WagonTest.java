@@ -66,7 +66,6 @@ public class WagonTest {
     private static final String OCI_LAYOUT = "{ \"imageLayoutVersion\": \"1.0.0\" }";
 
     private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
-    private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
 
     private static final String INDEX = "{\n"
             + "  \"schemaVersion\": 2,\n"

@@ -74,7 +74,7 @@ import org.slf4j.LoggerFactory;
 /**
  * OciDistributionWagon
  *
- * Maven wagon to use Image registries as a Maven repository
+ * Maven wagon that allows us to use Docker Image registries as Maven repositories
  *
  */
 public class OciDistributionWagon implements Wagon {
@@ -287,7 +287,7 @@ public class OciDistributionWagon implements Wagon {
         // replace '/' in image repository names as Docker Hub doesn't support it
         if (DOCKER_REGISTRIES.contains(targetImageReference.getRegistry())) {
             Matcher region = Pattern.compile("/").matcher(repository);
-            repository = replaceAllExceptFirst(region, "_", repository);
+            repository = replaceAllWithUnderscoreExceptFirst(region, repository);
         }
         RegistryClient.Factory factory = RegistryClient.factory(EventHandlers.NONE, registry, repository, client);
         boolean setupAuth = this.authenticationInfo != null;
@@ -307,7 +307,7 @@ public class OciDistributionWagon implements Wagon {
         return registryClient;
     }
 
-    private String replaceAllExceptFirst(Matcher match, String replacement, String original) {
+    private String replaceAllWithUnderscoreExceptFirst(Matcher match, String original) {
         match.reset();
         boolean result = match.find();
         boolean first = true;
@@ -318,7 +318,7 @@ public class OciDistributionWagon implements Wagon {
                     first = false;
                     match.appendReplacement(sb, "/");
                 } else {
-                    match.appendReplacement(sb, replacement);
+                    match.appendReplacement(sb, "_");
                 }
                 result = match.find();
             } while (result);
@@ -328,12 +328,12 @@ public class OciDistributionWagon implements Wagon {
         return original;
     }
 
-    boolean areProxyPropertiesSet(String protocol) {
+    private boolean areProxyPropertiesSet(String protocol) {
         return PROXY_PROPERTIES.stream()
                 .anyMatch(property -> System.getProperty(protocol + "." + property) != null);
     }
 
-    void activateHttpAndHttpsProxies() {
+    private void activateHttpAndHttpsProxies() {
         List<ProxyInfo> proxies = new ArrayList<>(2);
         if (this.proxyInfo != null) {
             proxies.add(this.proxyInfo);
@@ -352,7 +352,7 @@ public class OciDistributionWagon implements Wagon {
         proxies.forEach(this::setProxyProperties);
     }
 
-    void setProxyProperties(ProxyInfo proxy) {
+    private void setProxyProperties(ProxyInfo proxy) {
         String protocol = proxy.getType();
 
         setPropertySafe(protocol + ".proxyHost", proxy.getHost());
@@ -362,7 +362,7 @@ public class OciDistributionWagon implements Wagon {
         setPropertySafe("http.nonProxyHosts", proxy.getNonProxyHosts());
     }
 
-    void setPropertySafe(String property, String value) {
+    private void setPropertySafe(String property, String value) {
         if (value != null) {
             System.setProperty(property, value);
         }

@@ -4,7 +4,7 @@ This Maven https://maven.apache.org/wagon/[Wagon] allows you to use your Image r
 
 == Use it
 
-The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs and works similarly to the other Maven wagons. For example, to use Docker Hub as a Maven repository:
+The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs and works similarly to other Maven wagons. For example, to use Docker Hub as a Maven repository:
 
 [source,xml]
 ----
@@ -40,16 +40,26 @@ The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs an
   <extensions>
     <extension>
         <groupId>com.github.johnpoth</groupId>
-        <artifactId>wagon-oci-distribution</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <artifactId>wagon-docker-registry</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
     </extension>
   </extensions>
 </build>
 ----
 
-Now you can deploy/pull your artifacts to Docker Hub. Enjoy !
+Now you can deploy/pull your artifacts to/from Docker Hub. Enjoy !
+
+== Image Format
+
+This Maven wagon will upload your artifact as an OCI compliant https://github.com/opencontainers/image-spec[Image] with a single Layer (or Blob) that is simply the TAR of your artifact. The Image repository name will be roughly equal to the path requested by Maven. For example, the Image repository name for this project will be `com/johnpoth/github/wagon-docker-registry/0.1.0-snapshot/wagon-docker-registry-0.1.0-snapshot.jar` and with Image tag equal to `0.1.0-SNAPSHOT`. Notice that the Image repository name is lower cased. This is done in order to be compliant with the https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview[Spec].
+
+== Image Repository naming
+
+As mentioned above, the Image repository name will be equal to the path requested by Maven but lower cased. If you are trying to upload to Docker hub, "/" will be replaced by "_" to comply with Docker Hub's image repository naming restrictions.
+
+We plan to expose an API to allow users to customize the mappings used.
 
 == Credits
 
-The wagon uses https://github.com/GoogleContainerTools/jib[Jib] to build and push the Image TAR.
+The wagon uses the awesome https://github.com/GoogleContainerTools/jib[Jib] library to build and push the Image TAR.
 
