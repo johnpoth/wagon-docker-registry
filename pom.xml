@@ -34,6 +34,28 @@
 
   <url>https://github.com/johnpoth/wagon-docker-registry</url>
 
+  <developers>
+    <developer>
+      <name>John Poth</name>
+      <email>poth.john@gmail.com</email>
+      <timezone>+1</timezone>
+    </developer>
+  </developers>
+
+  <licenses>
+    <license>
+      <name>Apache License 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+    </license>
+  </licenses>
+
+  <scm>
+    <url>scm:git:git@github.com:johnpoth/wagon-docker-registry.git</url>
+    <connection>scm:git:git@github.com:johnpoth/wagon-docker-registry.git</connection>
+    <developerConnection>scm:git:git@github.com:johnpoth/wagon-docker-registry.git</developerConnection>
+    <tag>HEAD</tag>
+  </scm>
+
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <commons.compress.version>1.21</commons.compress.version>
