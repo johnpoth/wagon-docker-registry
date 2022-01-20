@@ -22,19 +22,20 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 import com.google.cloud.tools.jib.api.Credential;
 import com.google.cloud.tools.jib.api.DescriptorDigest;
 import com.google.cloud.tools.jib.api.ImageReference;
 import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
 import com.google.cloud.tools.jib.api.RegistryException;
+import com.google.cloud.tools.jib.api.buildplan.ImageFormat;
 import com.google.cloud.tools.jib.blob.Blob;
 import com.google.cloud.tools.jib.blob.BlobDescriptor;
 import com.google.cloud.tools.jib.blob.Blobs;
@@ -47,6 +48,7 @@ import com.google.cloud.tools.jib.http.ResponseException;
 import com.google.cloud.tools.jib.image.json.BuildableManifestTemplate;
 import com.google.cloud.tools.jib.image.json.ContainerConfigurationTemplate;
 import com.google.cloud.tools.jib.image.json.OciManifestTemplate;
+import com.google.cloud.tools.jib.image.json.V22ManifestTemplate;
 import com.google.cloud.tools.jib.registry.ManifestAndDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -72,30 +74,33 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * OciDistributionWagon
+ * DockerDistributionWagon
  *
  * Maven wagon that allows us to use Docker Image registries as Maven repositories
  *
  */
-public class OciDistributionWagon implements Wagon {
+public class DockerDistributionWagon implements Wagon {
 
-    private boolean allowInsecureRegistries = true;
-    private boolean sendAuthorizationOverHttp = true;
+    private static final Logger LOG = LoggerFactory.getLogger( DockerDistributionWagon.class);
+
+    // set by Maven
     private Repository repository;
-    private int timeout;
-    private int readTimeout;
-
-    private static final List<String> PROXY_PROPERTIES = Arrays.asList("proxyHost", "proxyPort", "proxyUser", "proxyPassword");
     private ProxyInfo proxyInfo;
     private ProxyInfoProvider proxyInfoProvider;
     private AuthenticationInfo authenticationInfo;
-    private FailoverHttpClient client;
-    private static final Logger LOG = LoggerFactory.getLogger( OciDistributionWagon.class);
     private TransferEventSupport transferEventSupport = new TransferEventSupport();
-    // TODO: expose this option as other registries may have illegal characters for registry names. For example quay.io doesn't allow '.'
-    // TODO: as per https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview
-    // if a resource has more than 256 characters, maybe use the resource name's sha256sum instead.
-    private static final Set<String> DOCKER_REGISTRIES = new HashSet<>(Arrays.asList("registry.hub.docker.com", "index.docker.io", "registry-1.docker.io", "docker.io"));
+
+    // User configuration
+    private boolean allowInsecureRegistries = true;
+    private boolean sendAuthorizationOverHttp = true;
+    private int timeout;
+    private int readTimeout;
+    private ImageFormat imageFormat = ImageFormat.Docker;
+    private ImageNamingStrategy imageNamingStrategy = ImageNamingStrategy.Default;
+    private Map<String, String> imageNamingMap = new HashMap<>();
+
+    private static final List<String> PROXY_PROPERTIES = Arrays.asList("proxyHost", "proxyPort", "proxyUser", "proxyPassword");
+    private FailoverHttpClient client;
 
 
     @Override
@@ -158,7 +163,7 @@ public class OciDistributionWagon implements Wagon {
         try {
             DescriptorDigest testContainerConfigurationBlobDigest = Digests.computeDigest(containerConfiguration).getDigest();
             // Creates a valid image manifest.
-            OciManifestTemplate expectedManifestTemplate = new OciManifestTemplate();
+            BuildableManifestTemplate expectedManifestTemplate = getBuildableManifestTemplate();
             expectedManifestTemplate.setContainerConfiguration(Digests.computeDigest(containerConfiguration).getSize(), testContainerConfigurationBlobDigest);
             BlobDescriptor blobDescriptor = cfo.computeDigest();
             expectedManifestTemplate.addLayer(blobDescriptor.getSize(), blobDescriptor.getDigest());
@@ -176,6 +181,17 @@ public class OciDistributionWagon implements Wagon {
             LOG.error("Error while putting [{}]", destination, e);
             throw new TransferFailedException(e.getMessage());
         }
+    }
+
+    private BuildableManifestTemplate getBuildableManifestTemplate() {
+        // Defaults to Docker
+        switch (this.imageFormat) {
+            case OCI:
+                return new OciManifestTemplate();
+            default:
+                return new V22ManifestTemplate();
+        }
+
     }
 
     private void copyResource(String resourceName, File destination, RegistryClient registryClient, ManifestAndDigest<BuildableManifestTemplate> v1) throws TransferFailedException {
@@ -271,24 +287,20 @@ public class OciDistributionWagon implements Wagon {
     }
 
     private RegistryClient getRegistryClient(String resourceName) throws TransferFailedException, ResourceDoesNotExistException {
-        // removes 'oci://' from repository url
-        String url = this.repository.getUrl().substring(6);
-        String image = url + "/" +  resourceName;
+        String imageRepositoryName = getImageRepositoryName(resourceName);
+        // removes 'docker://' from repository url
+        String url = this.repository.getUrl().replaceFirst("docker://","");
+        String image = url + "/" +  imageRepositoryName;
 
         ImageReference targetImageReference;
         try {
             targetImageReference = ImageReference.parse(image.toLowerCase());
         } catch (InvalidImageReferenceException e) {
-            LOG.debug("Error building image reference [{}]", resourceName.toLowerCase(), e);
+            LOG.debug("Error building image reference [{}]", imageRepositoryName, e);
             throw new ResourceDoesNotExistException(e.getMessage());
         }
         String registry = targetImageReference.getRegistry();
         String repository = targetImageReference.getRepository();
-        // replace '/' in image repository names as Docker Hub doesn't support it
-        if (DOCKER_REGISTRIES.contains(targetImageReference.getRegistry())) {
-            Matcher region = Pattern.compile("/").matcher(repository);
-            repository = replaceAllWithUnderscoreExceptFirst(region, repository);
-        }
         RegistryClient.Factory factory = RegistryClient.factory(EventHandlers.NONE, registry, repository, client);
         boolean setupAuth = this.authenticationInfo != null;
         if(setupAuth) {
@@ -307,25 +319,25 @@ public class OciDistributionWagon implements Wagon {
         return registryClient;
     }
 
-    private String replaceAllWithUnderscoreExceptFirst(Matcher match, String original) {
-        match.reset();
-        boolean result = match.find();
-        boolean first = true;
-        if (result) {
-            StringBuffer sb = new StringBuffer();
-            do {
-                if (first) {
-                    first = false;
-                    match.appendReplacement(sb, "/");
-                } else {
-                    match.appendReplacement(sb, "_");
-                }
-                result = match.find();
-            } while (result);
-            match.appendTail(sb);
-            return sb.toString();
+    private String getImageRepositoryName(String resourceName) {
+        if (imageNamingMap.containsKey(resourceName)) {
+            return imageNamingMap.get(resourceName);
         }
-        return original;
+        switch (this.imageNamingStrategy) {
+            case None:
+                return resourceName;
+            case SHA256:
+                try {
+                    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                    return new String(digest.digest(resourceName.getBytes()));
+                } catch (NoSuchAlgorithmException e) {
+                    throw new RuntimeException(e);
+                }
+            default:
+                String imageRepositoryName = resourceName.toLowerCase();
+                imageRepositoryName =  imageRepositoryName.replaceAll("/","_");
+                return imageRepositoryName.replaceAll(".","_");
+        }
     }
 
     private boolean areProxyPropertiesSet(String protocol) {

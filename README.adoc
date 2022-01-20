@@ -1,10 +1,10 @@
 = Maven Wagon for Image repositories
 
-This Maven https://maven.apache.org/wagon/[Wagon] allows you to use your Image repository as a Maven repository. By image repository we roughly follow the https://github.com/opencontainers/distribution-spec[Distribution Spec]. That being said, we do try to support popular vendors (e.g Docker, Azure, Google, RedHat etc...) that often put additional constraints on allowed characters in Image repository names (e.g Docker Hub doesn't allow '/'). Contributions are welcome!
+This Maven https://maven.apache.org/wagon/[Wagon] allows you to use your Image repository as a Maven repository. By image repository we roughly follow the https://github.com/opencontainers/distribution-spec[Distribution Spec]. That being said, we do try to support popular vendors (e.g Docker, Azure, Google, RedHat etc...) that often put additional constraints on allowed characters in Image repository names (e.g Docker Hub doesn't allow `/`). Contributions are welcome!
 
 == Use it
 
-The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs and works similarly to other Maven wagons. For example, to use Docker Hub as a Maven repository:
+The wagon-docker-distribution wagon uses the `docker://` prefix for repository URLs and works similarly to other Maven wagons. For example, to use Docker Hub as a Maven repository:
 
 [source,xml]
 ----
@@ -18,7 +18,7 @@ The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs an
 <repository>
   <id>docker-hub</id>
   <name>Docker Hub Repository</name>
-  <url>oci://docker.io/jpoth</url>
+  <url>docker://docker.io/jpoth</url>
 </repository>
 ----
 
@@ -28,11 +28,11 @@ The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs an
 <distributionManagement>
   <snapshotRepository>
     <id>docker-hub</id>
-    <url>oci://docker.io/jpoth</url>
+    <url>docker://docker.io/jpoth</url>
   </snapshotRepository>
   <repository>
     <id>docker-hub</id>
-    <url>oci://docker.io/jpoth</url>
+    <url>docker://docker.io/jpoth</url>
   </repository>
 </distributionManagement>
 
@@ -41,7 +41,7 @@ The wagon-oci-distribution wagon uses the 'oci://' prefix for repository URLs an
     <extension>
         <groupId>com.github.johnpoth</groupId>
         <artifactId>wagon-docker-registry</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.2.0</version>
     </extension>
   </extensions>
 </build>
@@ -51,13 +51,58 @@ Now you can deploy/pull your artifacts to/from Docker Hub. Enjoy !
 
 == Image Format
 
-This Maven wagon will upload your artifact as an OCI compliant https://github.com/opencontainers/image-spec[Image] with a single Layer (or Blob) that is simply the TAR of your artifact. The Image repository name will be roughly equal to the path requested by Maven. For example, the Image repository name for this project will be `com/johnpoth/github/wagon-docker-registry/0.1.0-snapshot/wagon-docker-registry-0.1.0-snapshot.jar` and with Image tag equal to `0.1.0-SNAPSHOT`. Notice that the Image repository name is lower cased. This is done in order to be compliant with the https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview[Spec].
+This Maven wagon will upload your artifact as an OCI or Docker (by default) compliant https://github.com/opencontainers/image-spec[Image] with a single Layer (or Blob) that is simply the TAR of your artifact. The Image repository name will be roughly equal to the HTTP path built by Maven. For example, given the Maven artifact `org.apache.ant:ant:jar:1.10.12`, it's HTTP path will be `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` and it's the Image repository name will be mapped by default to `org_apache_ant_ant_1_10_12_ant-1_10_12_jar` and it's Image tag equal to `1.10.12`. Notice that the Image repository name is lower cased, `.` and `/` are replaced with `_`. This is done in order to be compliant with the https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview[Spec] and restrictions put in place by popular vendors (Amazon, Red Hat, Microsoft, Docker Hub, etc...).
 
 == Image Repository naming
 
-As mentioned above, the Image repository name will be equal to the path requested by Maven but lower cased. If you are trying to upload to Docker hub, "/" will be replaced by "_" to comply with Docker Hub's image repository naming restrictions.
+As mentioned above, the Image repository name will be equal to the HTTP path requested by Maven but lower cased, `.` and `/` are replaced with `_` by default. The image Tag will be equal to the artifact's version or `latest` if none is provided.
 
-We plan to expose an API to allow users to customize the mappings used.
+Here's a table illustrating the different ways the Image name can be built:
+
+[width="100%",cols="2,6,^1,6,2",options="header"]
+|===
+|Strategy | Maven artifact | Maven HTTP path | Image Name | Image Tag
+|Default| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | org_apache_ant_ant_1_10_12_ant-1_10_12_jar | 1.10.12
+| None| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | 1.10.12
+| SHA256| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | fa7a092905691cbd66d18bc9be3eb7b87bd2cdde5a2499d348a5dfe43362b27a | 1.10.12
+|===
+
+The `SHA256` strategy  is only recommend as a last resort because users won't be able to know whats in the Image just by looking at it's name.
+
+If the above isn't enough, a map can be configured to store mappings that will be used to construct the Image Repository names.
+
+The `strategy` and custom mapping can be set using the `imageNamingStrategy` and `imageNamingMap` configuration property respectively:
+
+
+----
+<!-- settings.xml example -->
+<server>
+  <id>docker-hub</id>
+  <username>jpoth</username>
+  <password>XXXXXX</password>
+  <configuration>
+    <imageNamingMap>
+      <key1>value1</key1>
+      <key2>value2</key2>
+    </imageNamingMap>
+    <imageNamingStrategy>None</imageNamingStrategy>
+  </configuration>
+</server>
+----
+
+Here's a full list of available options:
+
+[width="100%",cols="2,6,4,6",options="header"]
+|===
+|Name|Type|Default|Description
+|timeout|Integer| 20000|HTTP timeout
+|allowInsecureRegistries|Boolean| true|Allow HTTP
+|sendAuthorizationOverHttp|Boolean|true|Allow sending auth over HTTP connections
+|imageFormat| Enum (Docker,OCI)| Docker| Image format
+|imageNamingStrategy | Enum (Default,None, SHA256)| Default| Image repository naming strategy
+|imageNamingMap| Map| Empty| Map that will be looked up for image names
+
+|===
 
 == Credits
 
