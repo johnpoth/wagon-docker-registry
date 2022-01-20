@@ -4,7 +4,7 @@ This Maven https://maven.apache.org/wagon/[Wagon] allows you to use your Image r
 
 == Use it
 
-The wagon-docker-distribution wagon uses the `docker://` prefix for repository URLs and works similarly to other Maven wagons. For example, to use Docker Hub as a Maven repository:
+The wagon-docker-registry wagon uses the `docker://` prefix for repository URLs and works similarly to other Maven wagons. For example, to use Docker Hub as a Maven repository:
 
 [source,xml]
 ----
@@ -47,7 +47,7 @@ The wagon-docker-distribution wagon uses the `docker://` prefix for repository U
 </build>
 ----
 
-Now you can deploy/pull your artifacts to/from Docker Hub. Enjoy !
+Now you can deploy/pull your Maven artifacts to/from Docker Hub. Enjoy !
 
 == Image Format
 
@@ -100,7 +100,7 @@ Here's a full list of available options:
 |sendAuthorizationOverHttp|Boolean|true|Allow sending auth over HTTP connections
 |imageFormat| Enum (Docker,OCI)| Docker| Image format
 |imageNamingStrategy | Enum (Default,None, SHA256)| Default| Image repository naming strategy
-|imageNamingMap| Map| Empty| Map that will be looked up for image names
+|imageNamingMap| Map| Empty| Map that will be looked up for Image names
 
 |===
 
