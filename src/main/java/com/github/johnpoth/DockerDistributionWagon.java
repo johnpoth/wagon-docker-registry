@@ -335,8 +335,7 @@ public class DockerDistributionWagon implements Wagon {
                 }
             default:
                 String imageRepositoryName = resourceName.toLowerCase();
-                imageRepositoryName =  imageRepositoryName.replaceAll("/","_");
-                return imageRepositoryName.replaceAll(".","_");
+                return imageRepositoryName.replaceAll("\\.|/","_");
         }
     }
 
