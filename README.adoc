@@ -51,18 +51,18 @@ Now you can deploy/pull your Maven artifacts to/from Docker Hub. Enjoy !
 
 == Image Format
 
-This Maven wagon will upload your artifact as an OCI or Docker (by default) compliant https://github.com/opencontainers/image-spec[Image] with a single Layer (or Blob) that is simply the TAR of your artifact. The Image repository name will be roughly equal to the HTTP path built by Maven. For example, given the Maven artifact `org.apache.ant:ant:jar:1.10.12`, it's HTTP path will be `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` and it's the Image repository name will be mapped by default to `org_apache_ant_ant_1_10_12_ant-1_10_12_jar` and it's Image tag equal to `1.10.12`. Notice that the Image repository name is lower cased, `.` and `/` are replaced with `_`. This is done in order to be compliant with the https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview[Spec] and restrictions put in place by popular vendors (Amazon, Red Hat, Microsoft, Docker Hub, etc...).
+This Maven wagon will upload your artifact as an OCI or Docker (by default) compliant https://github.com/opencontainers/image-spec[Image] with a single Layer (or Blob) that is simply the TAR of your artifact. The Image repository name will be roughly equal to the HTTP path built by Maven. For example, given the Maven artifact `org.apache.ant:ant:jar:1.10.12`, it's HTTP path will be `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` and it's the Image repository name will be mapped by default to `org_apache_ant_ant_1_10_12_ant-1_10_12_jar` and it's Image tag equal to `1.10.12`. Notice that the Image repository name is lower cased, prefixed with `maven_`, `.` and `/` are replaced with `_`. This is done in order to be compliant with the https://github.com/distribution/distribution/blob/main/docs/spec/api.md#overview[Spec] and restrictions put in place by popular vendors (Amazon, Red Hat, Microsoft, Docker Hub, etc...). The `maven_` prefix was added in order to easily retrieve images uploaded by `wagon-docker-registry` which makes cleaning things up a bit easier.
 
 == Image Repository naming
 
-As mentioned above, the Image repository name will be equal to the HTTP path requested by Maven but lower cased, `.` and `/` are replaced with `_` by default. The image Tag will be equal to the artifact's version or `latest` if none is provided.
+As mentioned above, the Image repository name will be equal to the HTTP path requested by Maven but lower cased, prefixed with `maven_`, `.` and `/` are replaced with `_` by default. The image Tag will be equal to the artifact's version or `latest` if none is provided.
 
 Here's a table illustrating the different ways the Image name can be built:
 
 [width="100%",cols="2,6,^1,6,2",options="header"]
 |===
 |Strategy | Maven artifact | Maven HTTP path | Image Name | Image Tag
-|Default| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | org_apache_ant_ant_1_10_12_ant-1_10_12_jar | 1.10.12
+|Default| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | maven_org_apache_ant_ant_1_10_12_ant-1_10_12_jar | 1.10.12
 | None| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | 1.10.12
 | SHA256| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | fa7a092905691cbd66d18bc9be3eb7b87bd2cdde5a2499d348a5dfe43362b27a | 1.10.12
 |===
