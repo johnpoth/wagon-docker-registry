@@ -23,7 +23,7 @@
 
   <groupId>com.github.johnpoth</groupId>
   <artifactId>wagon-docker-registry</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <description>
     Wagon provider that gets and puts artifacts from and to OCI Image repositories (supports Docker too)
@@ -52,7 +52,7 @@
     <url>scm:git:git@github.com:johnpoth/wagon-docker-registry.git</url>
     <connection>scm:git:git@github.com:johnpoth/wagon-docker-registry.git</connection>
     <developerConnection>scm:git:git@github.com:johnpoth/wagon-docker-registry.git</developerConnection>
-    <tag>wagon-docker-registry-0.2.0</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <distributionManagement>
