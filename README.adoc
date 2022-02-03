@@ -62,9 +62,9 @@ Here's a table illustrating the different ways the Image name can be built:
 [width="100%",cols="2,6,^1,6,2",options="header"]
 |===
 |Strategy | Maven artifact | Maven HTTP path | Image Name | Image Tag
-|Default| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | maven_org_apache_ant_ant_1_10_12_ant-1_10_12_jar | 1.10.12
-| None| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | 1.10.12
-| SHA256| org.apache.ant:ant:jar:1.10.12 | org/apache/ant/ant/1.10.12/ant-1.10.12.jar | fa7a092905691cbd66d18bc9be3eb7b87bd2cdde5a2499d348a5dfe43362b27a | 1.10.12
+|`Default`| `org.apache.ant:ant:jar:1.10.12` | `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` | `maven_org_apache_ant_ant_1_10_12_ant-1_10_12_jar` | `1.10.12`
+| `None`| `org.apache.ant:ant:jar:1.10.12` | `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` | `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` | `1.10.12`
+| `SHA256`| `org.apache.ant:ant:jar:1.10.12` | `org/apache/ant/ant/1.10.12/ant-1.10.12.jar` | `fa7a092905691cbd66d18bc9be3eb7b87bd2cdde5a2499d348a5dfe43362b27a` | `1.10.12`
 |===
 
 The `SHA256` strategy  is only recommend as a last resort because users won't be able to know whats in the Image just by looking at it's name.
